@@ -1,0 +1,8 @@
+# Configuration Azure ML
+AZURE_SUBSCRIPTION_ID=your_subscription_id_here
+AZURE_RESOURCE_GROUP=ml-resource-group
+AZURE_WORKSPACE_NAME=clip-classification-workspace
+
+# Configuration du service déployé
+AZURE_ML_ENDPOINT_URL=https://your-endpoint.westeurope.inference.ml.azure.com/score
+AZURE_ML_API_KEY=your_api_key_here

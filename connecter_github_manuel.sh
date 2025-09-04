@@ -1,0 +1,18 @@
+#!/bin/bash
+
+echo "🔗 Connexion manuelle à GitHub"
+echo "=============================="
+echo ""
+echo "📋 Instructions :"
+echo "1. Créez un nouveau dépôt sur GitHub.com"
+echo "2. Nom suggéré : clip-product-classifier"
+echo "3. Visibilité : Public (requis pour Streamlit Cloud gratuit)"
+echo "4. Copiez l'URL du dépôt (ex: https://github.com/votre-username/clip-product-classifier.git)"
+echo ""
+echo "🔗 Une fois créé, exécutez :"
+echo "git remote add origin https://github.com/votre-username/clip-product-classifier.git"
+echo "git branch -M main"
+echo "git push -u origin main"
+echo ""
+echo "🌐 Puis allez sur : https://share.streamlit.io"
+echo "Et connectez votre dépôt GitHub"
