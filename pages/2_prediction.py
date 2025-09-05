@@ -1,20 +1,25 @@
+"""
+Page de prédiction pour la version cloud avec Azure ML
+"""
 
 import os
 import pandas as pd
-try:
-    import torch
-except ImportError:
-    torch = None
 import streamlit as st
-import spacy
-from transformers import CLIPModel, CLIPTokenizer, CLIPProcessor
+try:
+    import spacy
+except ImportError:
+    spacy = None
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+except ImportError:
+    sns = None
 from collections import Counter
 import re
 from scipy.interpolate import griddata
+from azure_client import get_azure_client
 
 # Importer le module d'accessibilité
 import sys
@@ -25,16 +30,14 @@ from accessibility import init_accessibility_state, render_accessibility_sidebar
 # Initialiser l'état d'accessibilité
 init_accessibility_state()
 
-# Configuration de page supprimée - gérée par accessibility.py
-
-st.title("Prédiction de Catégorie")
+st.title("🔮 Prédiction de Catégorie")
 
 # Configuration d'accessibilité
 ACCESSIBLE_COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
 HIGH_CONTRAST_COLORS = ['#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00']
 
-# Load classifier from session state
-classifier = st.session_state['classifier']
+# Obtenir le client Azure ML
+azure_client = get_azure_client()
 
 # Afficher les options d'accessibilité dans la sidebar
 render_accessibility_sidebar()
@@ -42,16 +45,9 @@ render_accessibility_sidebar()
 # Appliquer les styles d'accessibilité
 apply_accessibility_styles()
 
-# Load spaCy model on CPU to avoid device mismatch issues
-try:
-    nlp = spacy.load("en_core_web_trf")
-    st.info("⚠️ spaCy running on CPU to ensure stability")
-except Exception as e:
-    st.error(f"❌ Failed to load spaCy model: {str(e)}")
-    st.info("⏳ Downloading spaCy model...")
-    os.system("python -m spacy download en_core_web_trf")
-    nlp = spacy.load("en_core_web_trf")
-    st.info("⚠️ spaCy running on CPU to ensure stability")
+# spaCy will be handled by Azure ML API, not locally
+nlp = None
+st.info("🔄 spaCy processing will be handled by Azure ML API")
 
 def clean_text(text):
     """Clean text using the same replacement patterns as in training."""
@@ -225,23 +221,50 @@ def clean_text(text):
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
+def extract_keywords_fallback(text, top_n=15):
+    """Fallback keyword extraction without spaCy."""
+    import re
+    from collections import Counter
+    
+    # Simple stopwords list
+    stopwords = {
+        'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
+        'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
+        'to', 'was', 'will', 'with', 'this', 'these', 'they', 'them',
+        'their', 'there', 'then', 'than', 'or', 'but', 'if', 'when',
+        'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few',
+        'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
+        'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can',
+        'could', 'should', 'would', 'may', 'might', 'must', 'shall'
+    }
+    
+    # Clean and tokenize text
+    text = re.sub(r'[^\w\s]', ' ', text.lower())
+    words = text.split()
+    
+    # Filter out stopwords and short words
+    keywords = [word for word in words if len(word) > 2 and word not in stopwords]
+    
+    # Count and return top keywords
+    word_counts = Counter(keywords)
+    return [word for word, count in word_counts.most_common(top_n)]
+
 def extract_keywords(text, nlp, top_n=15):
     """Extract keywords from text using lemmatization and stopword removal."""
     if pd.isna(text) or text == '':
         return []
     # Clean text before processing
     text = clean_text(text)
+    
+    # If spaCy is not available, use simple text processing
+    if nlp is None:
+        return extract_keywords_fallback(text, top_n)
+    
     try:
         doc = nlp(text)
     except Exception as e:
-        st.error(f"❌ Error processing text with spaCy: {str(e)}")
-        st.warning("⚠️ Retrying with CPU-based spaCy model...")
-        try:
-            nlp_cpu = spacy.load("en_core_web_trf")
-            doc = nlp_cpu(text)
-        except Exception as e2:
-            st.error(f"❌ Failed to process text even on CPU: {str(e2)}")
-            return []
+        st.warning(f"⚠️ Error processing text with spaCy: {str(e)}")
+        return extract_keywords_fallback(text, top_n)
     keywords = []
     for token in doc:
         lemma = token.lemma_.lower().strip()
@@ -257,149 +280,6 @@ def extract_keywords(text, nlp, top_n=15):
         keywords.append(lemma)
     keyword_counts = Counter(keywords)
     return [word for word, count in keyword_counts.most_common(top_n)]
-
-def clip_attention_analysis(classifier, image, keywords):
-    """Perform attention analysis and prediction, adapted from notebook."""
-    classifier.model.eval()
-    try:
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        # Sauvegarder les proportions originales pour l'affichage
-        original_size = image.size  # (width, height)
-        
-        # Pour le modèle CLIP, on doit redimensionner à 224x224
-        image_inputs = classifier.processor(images=image, return_tensors="pt").pixel_values.to(classifier.device)
-        
-        # Pour l'affichage, garder les proportions originales
-        image_pil = image  # Garder l'image originale pour l'affichage
-        image_gray = image_pil.convert('L')
-        image_array = np.array(image_gray)
-    except Exception as e:
-        st.error(f"❌ Erreur lors du traitement de l'image: {str(e)}")
-        return None
-    
-    text = ", ".join(keywords)
-    text_inputs = classifier.tokenizer(
-        text,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=77
-    ).to(classifier.device)
-    
-    with torch.no_grad():
-        outputs = classifier.model.clip(
-            pixel_values=image_inputs,
-            input_ids=text_inputs['input_ids'],
-            attention_mask=text_inputs['attention_mask'],
-            output_attentions=True,
-            return_dict=True
-        )
-    
-    # Predict category
-    logits = classifier.model.classifier(torch.cat((outputs.image_embeds, outputs.text_embeds), dim=-1))
-    predicted_label = torch.argmax(logits, dim=1).item()
-    predicted_category = classifier.label_encoder.inverse_transform([predicted_label])[0]
-    
-    # Extract image attention for heatmap
-    vision_attentions = outputs.vision_model_output.attentions[-1]
-    vision_attentions = vision_attentions.mean(dim=1).squeeze(0)
-    vision_attentions = vision_attentions[1:, 1:]  # Exclude [CLS]
-    patch_attentions = vision_attentions.mean(dim=0)
-    grid_size = 7
-    attention_map = patch_attentions.reshape(grid_size, grid_size).cpu().numpy()
-    
-    # Smooth attention map to match original image size
-    x, y = np.meshgrid(np.linspace(0, grid_size-1, grid_size), np.linspace(0, grid_size-1, grid_size))
-    
-    # Utiliser la taille originale de l'image pour le lissage
-    target_height, target_width = image_array.shape
-    
-    # Créer la grille fine avec le bon ordre pour correspondre à l'image
-    x_fine, y_fine = np.meshgrid(np.linspace(0, grid_size-1, target_width), np.linspace(0, grid_size-1, target_height))
-    
-    # Interpoler la carte d'attention
-    attention_map_smooth = griddata(
-        (x.flatten(), y.flatten()),
-        attention_map.flatten(),
-        (x_fine, y_fine),
-        method='cubic'
-    )
-    attention_map_smooth = np.clip(attention_map_smooth, 0, None)
-    attention_map_smooth = (attention_map_smooth - attention_map_smooth.min()) / (attention_map_smooth.max() - attention_map_smooth.min() + 1e-8)
-    
-    # Ensure correct orientation by transposing if necessary
-    if attention_map_smooth.shape != (target_height, target_width):
-        st.error(f"Unexpected attention map shape: {attention_map_smooth.shape}, expected: {(target_height, target_width)}")
-        return None
-    
-    # Extract keyword similarities, mapping tokens to full keywords
-    keyword_similarities = {kw: 0.0 for kw in keywords}  # Initialize with input keywords
-    tokens = classifier.tokenizer.convert_ids_to_tokens(text_inputs['input_ids'][0])
-    cross_attentions = outputs.vision_model_output.attentions[-1]
-    cross_attentions = cross_attentions.mean(dim=1).squeeze(0)
-    cross_attentions = cross_attentions[1:, :]  # Exclude [CLS]
-    attention_mask = text_inputs['attention_mask'][0].cpu().numpy()
-    valid_indices = np.where(attention_mask == 1)[0]
-    cross_attentions_sum = cross_attentions.sum(dim=0).cpu().numpy()
-    
-    # Tokenize input keywords to map to their token IDs
-    tokenized_keywords = [classifier.tokenizer(kw, add_special_tokens=False)['input_ids'] for kw in keywords]
-    keyword_token_map = {kw: tokens for kw, tokens in zip(keywords, tokenized_keywords)}
-    
-    current_word = ""
-    current_keyword = None
-    token_buffer = []
-    token_indices = []
-    
-    for i, token in enumerate(tokens):
-        if i not in valid_indices:
-            continue
-        if token in ['[CLS]', '[SEP]', '<pad>', '<|startoftext|>', '<|endoftext|>']:
-            continue
-        if token == ',' or token == ',</w>':
-            continue  # Skip commas
-        if token.endswith('</w>'):
-            token = token[:-4]  # Remove </w>
-        if token.startswith('##'):
-            token = token[2:]  # Remove ## prefix
-            current_word += token
-            token_buffer.append(token)
-            token_indices.append(i)
-        else:
-            if current_word and current_keyword and token_indices:
-                # Assign accumulated attention to the matched keyword
-                total_attention = sum(cross_attentions_sum[idx] for idx in token_indices if idx < len(cross_attentions_sum))
-                keyword_similarities[current_keyword] += total_attention / cross_attentions_sum.sum()
-            current_word = token
-            token_buffer = [token]
-            token_indices = [i]
-            current_keyword = None
-            # Find matching keyword
-            for kw, kw_tokens in keyword_token_map.items():
-                kw_token_strings = [classifier.tokenizer.decode([t]).replace('</w>', '').replace('##', '') for t in kw_tokens]
-                if current_word in kw_token_strings or current_word == kw.lower():
-                    current_keyword = kw
-                    break
-    
-    # Handle the last word
-    if current_word and current_keyword and token_indices:
-        total_attention = sum(cross_attentions_sum[idx] for idx in token_indices if idx < len(cross_attentions_sum))
-        keyword_similarities[current_keyword] += total_attention / cross_attentions_sum.sum()
-    
-    # Normalize similarities to sum to 1
-    total_sim = sum(keyword_similarities.values())
-    if total_sim > 0:
-        keyword_similarities = {k: v / total_sim for k, v in keyword_similarities.items()}
-    
-    return {
-        'keywords': keywords,
-        'predicted_category': predicted_category,
-        'attention_map': attention_map_smooth,
-        'keyword_similarities': keyword_similarities,
-        'image_gray': image_array
-    }
 
 st.header("Entrée des Données du Produit")
 product_name = st.text_input("Nom du Produit", placeholder="Exemple : Montre pour homme", 
@@ -438,40 +318,43 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
     
     st.write(f"**Mots-clés extraits :** {', '.join(keywords)}")
     
-    # Predict and analyze attention
-    image = Image.open(uploaded_image)
-    results = clip_attention_analysis(classifier, image, keywords)
+    # Prédiction via Azure ML
+    with st.spinner("🔄 Prédiction en cours via Azure ML..."):
+        image = Image.open(uploaded_image)
+        text_description = f"{product_name} {description} {specifications}"
+        
+        result = azure_client.predict_category(image, text_description)
     
-    if results:
+    if result['success']:
         st.header("Résultats de la Prédiction")
-        st.write(f"**Mots-clés analysés :** {', '.join(results['keywords'])}")
-        st.write(f"**Catégorie prédite :** {results['predicted_category']}")
+        st.write(f"**Mots-clés analysés :** {', '.join(keywords)}")
+        st.write(f"**Catégorie prédite :** {result['predicted_category']}")
+        st.write(f"**Confiance :** {result['confidence']:.3f}")
+        st.write(f"**Source :** {result['source']}")
         
-        # Tableau alternatif pour les lecteurs d'écran
-        st.write("**Détails des scores de similarité :**")
-        similarity_data = []
-        for keyword, score in results['keyword_similarities'].items():
-            similarity_data.append({"Mot-clé": keyword, "Score": f"{score:.4f}"})
-        st.table(similarity_data)
+        # Afficher les scores de toutes les catégories
+        st.subheader("Scores de Toutes les Catégories")
+        category_data = []
+        for category, score in result['category_scores'].items():
+            category_data.append({"Catégorie": category, "Score": f"{score:.4f}"})
+        st.table(category_data)
         
-        st.subheader("Interprétabilité Texte (Barchart)")
+        # Graphique des scores
+        st.subheader("Visualisation des Scores")
         
         # Configuration des couleurs selon le mode d'accessibilité
         if st.session_state.accessibility.get('color_blind', False):
-            # Utiliser des couleurs accessibles pour les daltoniens
-            palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22']
+            palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
         elif st.session_state.accessibility.get('high_contrast', False):
             palette = HIGH_CONTRAST_COLORS
         else:
             palette = ACCESSIBLE_COLORS
         
         plt.figure(figsize=(12, 8))
-        keywords_list = list(results['keyword_similarities'].keys())
-        scores_list = list(results['keyword_similarities'].values())
+        categories = list(result['category_scores'].keys())
+        scores = list(result['category_scores'].values())
         
-        # Créer un graphique accessible
-        bars = plt.barh(keywords_list, scores_list, 
-                       color=palette[:len(keywords_list)])
+        bars = plt.barh(categories, scores, color=palette[:len(categories)])
         
         # Ajouter des motifs pour le mode daltonien
         if st.session_state.accessibility.get('color_blind', False):
@@ -479,17 +362,14 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
             for i, bar in enumerate(bars):
                 bar.set_hatch(patterns[i % len(patterns)])
         
-        plt.title(f"Scores de Similarité des Mots-Clés - {product_name[:50]}...", 
+        plt.title(f"Scores de Classification - {product_name[:50]}...", 
                   fontsize=16 if not st.session_state.accessibility.get('large_text', False) else 20, 
                   pad=20)
-        plt.xlabel("Score de similarité", fontsize=14 if not st.session_state.accessibility.get('large_text', False) else 18)
-        plt.ylabel("Mots-clés", fontsize=14 if not st.session_state.accessibility.get('large_text', False) else 18)
-        plt.gca().invert_yaxis()  # Inverser pour avoir le plus haut en haut
+        plt.xlabel("Score de probabilité", fontsize=14 if not st.session_state.accessibility.get('large_text', False) else 18)
+        plt.ylabel("Catégories", fontsize=14 if not st.session_state.accessibility.get('large_text', False) else 18)
+        plt.gca().invert_yaxis()
         
         # Appliquer les styles d'accessibilité aux graphiques
-        bg_color = 'black' if st.session_state.accessibility.get('high_contrast', False) else 'white'
-        text_color = 'white' if st.session_state.accessibility.get('high_contrast', False) else 'black'
-        
         if st.session_state.accessibility.get('high_contrast', False):
             plt.gca().set_facecolor('black')
             plt.gcf().set_facecolor('black')
@@ -499,78 +379,16 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
             plt.title(plt.gca().get_title(), color='white')
         
         # Ajouter les valeurs sur les barres
-        for i, (keyword, score) in enumerate(zip(keywords_list, scores_list)):
-            plt.text(score + 0.002, i, f'{score:.4f}', va='center', ha='left', 
-                    fontsize=12 if not st.session_state.accessibility.get('large_text', False) else 16, 
-                    color=text_color)
+        for i, (category, score) in enumerate(zip(categories, scores)):
+            plt.text(score + 0.01, i, f'{score:.3f}', va='center', ha='left', 
+                    fontsize=12 if not st.session_state.accessibility.get('large_text', False) else 16)
         
         plt.grid(axis='x', alpha=0.3)
         plt.tight_layout()
         st.pyplot(plt, use_container_width=True)
         
-        st.subheader("Interprétabilité Image (Heatmap)")
-        
-        # Debug shapes to ensure alignment
-        st.write(f"Debug: Image shape: {results['image_gray'].shape}, Attention map shape: {results['attention_map'].shape}")
-        
-        # Créer une heatmap superposée avec les proportions correctes
-        # Calculer les proportions basées sur la taille de l'image
-        image_height, image_width = results['image_gray'].shape
-        aspect_ratio = image_width / image_height
-        
-        # Définir une taille de base compacte
-        base_size = 0.8  # Taille compacte pour une vue optimale
-        if aspect_ratio > 1:  # Image plus large que haute
-            fig_width = base_size * aspect_ratio
-            fig_height = base_size
-        else:  # Image plus haute que large
-            fig_width = base_size
-            fig_height = base_size / aspect_ratio
-            
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-        
-        # Heatmap superposée sur l'image en niveaux de gris
-        ax.imshow(results['image_gray'], cmap='gray', aspect='equal')
-        
-        # Choisir la palette en fonction du mode d'accessibilité
-        if st.session_state.accessibility.get('color_blind', False):
-            cmap = 'viridis'
-        elif st.session_state.accessibility.get('high_contrast', False):
-            cmap = 'hot'
-        else:
-            cmap = 'plasma'
-            
-        # Utiliser la carte d'attention directement sans transposition
-        im = ax.imshow(results['attention_map'], cmap=cmap, alpha=0.5, aspect='equal')  # Superposition avec transparence
-        ax.set_title("Heatmap Superposée", fontsize=4)
-        ax.axis('off')
-        
-        # Appliquer les styles d'accessibilité
-        if st.session_state.accessibility.get('high_contrast', False):
-            ax.set_facecolor('black')
-            fig.set_facecolor('black')
-            ax.title.set_color('white')
-        
-        # Ajouter une barre de couleur très compacte
-        cbar = plt.colorbar(im, ax=ax, shrink=0.4, aspect=30)
-        cbar.set_label('Intensité d\'attention', 
-                       fontsize=3,
-                       color=text_color)
-        cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=2)
-        plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=text_color, fontsize=2)
-        
-        plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
-        
-        # Description textuelle pour les non-voyants
-        st.write("**Description de l'analyse :**")
-        max_attention = np.max(results['attention_map'])
-        min_attention = np.min(results['attention_map'])
-        st.write(f"""
-        - La heatmap superposée montre les zones de l'image où le modèle se concentre pour faire sa prédiction
-        - Intensité d'attention maximale: {max_attention:.3f}
-        - Intensité d'attention minimale: {min_attention:.3f}
-        - Les zones les plus claires indiquent une attention plus forte
-        """)
+    else:
+        st.error(f"❌ Erreur lors de la prédiction: {result['error']}")
+        st.info("💡 Vérifiez la configuration de l'API Azure ML ou utilisez le mode local.")
 
 st.markdown("</div>", unsafe_allow_html=True)
