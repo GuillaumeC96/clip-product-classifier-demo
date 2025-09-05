@@ -221,6 +221,24 @@ try:
         st.dataframe(keyword_freq_df.head(50))
         
         csv = keyword_freq_df.to_csv(index=False).encode('utf-8')
+        
+        # Styles CSS pour le bouton de téléchargement en mode contraste élevé
+        if st.session_state.accessibility.get('high_contrast', False):
+            st.markdown("""
+            <style>
+            .stDownloadButton > button {
+                background-color: white !important;
+                color: black !important;
+                border: 2px solid black !important;
+                font-weight: bold !important;
+            }
+            .stDownloadButton > button:hover {
+                background-color: black !important;
+                color: white !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+        
         st.download_button(
             label="Télécharger les fréquences des mots clés (CSV)",
             data=csv,
