@@ -49,6 +49,56 @@ apply_accessibility_styles()
 nlp = None
 st.info("🔄 spaCy processing will be handled by Azure ML API")
 
+# Fonction pour charger le produit de test par défaut
+def load_default_test_product():
+    """Charge le produit de test par défaut (montre Escort)"""
+    try:
+        # Charger les données
+        df = pd.read_csv('produits_original.csv')
+        
+        # Trouver le produit de test
+        test_product_id = "1120bc768623572513df956172ffefeb"
+        test_product = df[df['uniq_id'] == test_product_id]
+        
+        if not test_product.empty:
+            product = test_product.iloc[0]
+            
+            # Construire le chemin de l'image
+            image_filename = f"{test_product_id}.jpg"
+            image_path = f"Images/{image_filename}"
+            
+            # Vérifier si l'image existe
+            if os.path.exists(image_path):
+                return {
+                    'name': product['product_name'],
+                    'description': product['product_name'],  # Utiliser le nom comme description
+                    'specifications': f"Prix: {product['retail_price']} INR, Catégorie: {product['product_category_tree']}",
+                    'image_path': image_path,
+                    'image_filename': image_filename
+                }
+            else:
+                st.warning(f"⚠️ Image non trouvée: {image_path}")
+                return None
+        else:
+            st.warning("⚠️ Produit de test non trouvé dans les données")
+            return None
+            
+    except Exception as e:
+        st.error(f"❌ Erreur lors du chargement du produit de test: {str(e)}")
+        return None
+
+# Charger le produit de test par défaut
+default_product = load_default_test_product()
+
+# Lancer automatiquement la prédiction sur le produit de test au premier chargement
+if default_product and not st.session_state.get('auto_prediction_done', False):
+    st.session_state['auto_prediction_done'] = True
+    st.session_state['test_prediction_launched'] = True
+    st.session_state['test_product_name'] = default_product['name']
+    st.session_state['test_description'] = default_product['description']
+    st.session_state['test_specifications'] = default_product['specifications']
+    st.session_state['test_image_path'] = default_product['image_path']
+
 def clean_text(text):
     """Clean text using the same replacement patterns as in training."""
     if not isinstance(text, str):
@@ -282,6 +332,44 @@ def extract_keywords(text, nlp, top_n=15):
     return [word for word, count in keyword_counts.most_common(top_n)]
 
 st.header("Entrée des Données du Produit")
+
+# Section pour le produit de test par défaut
+if default_product:
+    st.info("🎯 **Produit de test chargé automatiquement** - Montre Escort E-1700-906")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.write(f"**Nom:** {default_product['name']}")
+        st.write(f"**Description:** {default_product['description']}")
+        st.write(f"**Spécifications:** {default_product['specifications']}")
+    
+    with col2:
+        if os.path.exists(default_product['image_path']):
+            st.image(default_product['image_path'], caption="Image du produit de test", width=200)
+        else:
+            st.warning("Image non trouvée")
+    
+    # Bouton pour lancer la prédiction sur le produit de test
+    if st.button("🚀 Lancer la prédiction sur le produit de test", type="primary", key="test_prediction_btn"):
+        # Simuler les données du formulaire
+        product_name = default_product['name']
+        description = default_product['description']
+        specifications = default_product['specifications']
+        uploaded_image = default_product['image_path']
+        
+        # Stocker dans session state pour éviter la re-exécution
+        st.session_state['test_prediction_launched'] = True
+        st.session_state['test_product_name'] = product_name
+        st.session_state['test_description'] = description
+        st.session_state['test_specifications'] = specifications
+        st.session_state['test_image_path'] = uploaded_image
+        
+        st.rerun()
+
+st.divider()
+
+# Formulaire manuel
+st.subheader("Ou saisir manuellement un produit")
 product_name = st.text_input("Nom du Produit", placeholder="Exemple : Montre pour homme", 
                             help="Saisissez le nom complet du produit", key="product_name_input",
                             label_visibility="visible")
@@ -300,13 +388,43 @@ st.markdown("""
 <div role="region" aria-label="Formulaire de prédiction de produit">
 """, unsafe_allow_html=True)
 
-if st.button("Prédire", key="predict_button", help="Lancer la prédiction de catégorie", type="primary"):
-    if not (uploaded_image and product_name and description and specifications):
-        st.error("Veuillez fournir un nom de produit, une description, des spécifications techniques et une image.")
+# Vérifier si une prédiction de test a été lancée
+if st.session_state.get('test_prediction_launched', False):
+    # Utiliser les données du produit de test
+    product_name = st.session_state.get('test_product_name', '')
+    description = st.session_state.get('test_description', '')
+    specifications = st.session_state.get('test_specifications', '')
+    uploaded_image = st.session_state.get('test_image_path', '')
+    
+    # Réinitialiser le flag
+    st.session_state['test_prediction_launched'] = False
+    
+    # Afficher les informations du produit de test
+    st.success("🎯 **Prédiction lancée sur le produit de test**")
+    st.write(f"**Produit analysé:** {product_name}")
+    
+    if os.path.exists(uploaded_image):
+        st.image(uploaded_image, caption="Image du produit de test", width=200)
+    else:
+        st.error(f"❌ Image non trouvée: {uploaded_image}")
         st.stop()
     
-    st.image(uploaded_image, caption="Image Téléchargée", width=200)
-    st.caption(f"Image analysée: {product_name}")
+    # Lancer la prédiction
+    prediction_launched = True
+else:
+    # Logique normale pour le formulaire manuel
+    prediction_launched = st.button("Prédire", key="predict_button", help="Lancer la prédiction de catégorie", type="primary")
+    
+    if prediction_launched:
+        if not (uploaded_image and product_name and description and specifications):
+            st.error("Veuillez fournir un nom de produit, une description, des spécifications techniques et une image.")
+            st.stop()
+        
+        st.image(uploaded_image, caption="Image Téléchargée", width=200)
+        st.caption(f"Image analysée: {product_name}")
+
+# Lancer la prédiction si demandée
+if prediction_launched:
     
     # Extract keywords
     combined_text = f"{description} {specifications}"
@@ -320,7 +438,14 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
     
     # Prédiction via Azure ML
     with st.spinner("🔄 Prédiction en cours via Azure ML..."):
-        image = Image.open(uploaded_image)
+        # Gérer à la fois les fichiers uploadés et les chemins d'images
+        if isinstance(uploaded_image, str):
+            # C'est un chemin d'image (produit de test)
+            image = Image.open(uploaded_image)
+        else:
+            # C'est un fichier uploadé
+            image = Image.open(uploaded_image)
+        
         text_description = f"{product_name} {description} {specifications}"
         
         result = azure_client.predict_category(image, text_description)
@@ -432,7 +557,13 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
             st.subheader("Interprétabilité Image (Heatmap d'Attention Simulée)")
             
             # Charger l'image
-            image = Image.open(uploaded_image)
+            if isinstance(uploaded_image, str):
+                # C'est un chemin d'image (produit de test)
+                image = Image.open(uploaded_image)
+            else:
+                # C'est un fichier uploadé
+                image = Image.open(uploaded_image)
+            
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             
