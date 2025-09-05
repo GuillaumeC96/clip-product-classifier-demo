@@ -1,7 +1,3 @@
-"""
-Script de scoring pour Azure ML - API d'inférence pour le modèle CLIP
-"""
-
 import os
 import json
 import torch
@@ -9,7 +5,8 @@ import numpy as np
 from PIL import Image
 import io
 import base64
-from transformers import CLIPModel, CLIPProcessor, CLIPTokenizer
+from transformers import CLIPModel, CLIPTokenizer, CLIPProcessor
+import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 import logging
 
@@ -17,141 +14,181 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-MODEL_NAME = 'openai/clip-vit-base-patch32'
-CATEGORIES = [
-    'Baby Care',
-    'Beauty and Personal Care', 
-    'Computers',
-    'Home Decor & Festive Needs',
-    'Home Furnishing',
-    'Kitchen & Dining',
-    'Watches'
-]
-
-class CLIPForClassification(torch.nn.Module):
-    """Modèle CLIP pour classification"""
-    def __init__(self, num_labels):
-        super().__init__()
-        self.clip = CLIPModel.from_pretrained(MODEL_NAME)
-        self.classifier = torch.nn.Linear(self.clip.config.projection_dim * 2, num_labels)
+class CLIPClassifier:
+    def __init__(self):
+        """Initialiser le classificateur CLIP"""
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Utilisation du device: {self.device}")
         
-    def forward(self, pixel_values, input_ids, attention_mask, labels=None):
-        outputs = self.clip(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask)
-        pooled_output = torch.cat((outputs.image_embeds, outputs.text_embeds), dim=-1)
-        logits = self.classifier(pooled_output)
-        return logits
+        # Charger le modèle CLIP
+        self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        
+        # Charger le modèle fine-tuné
+        model_path = "new_clip_product_classifier.pth"
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location=self.device)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            logger.info("Modèle fine-tuné chargé avec succès")
+        else:
+            logger.warning("Modèle fine-tuné non trouvé, utilisation du modèle de base")
+        
+        self.model.to(self.device)
+        self.model.eval()
+        
+        # Charger l'encodeur de labels
+        self.label_encoder = LabelEncoder()
+        self.categories = [
+            'Baby Care', 'Beauty and Personal Care', 'Computers',
+            'Home Decor & Festive Needs', 'Home Furnishing',
+            'Kitchen & Dining', 'Watches'
+        ]
+        self.label_encoder.fit(self.categories)
+        
+        logger.info("Classificateur CLIP initialisé avec succès")
+    
+    def preprocess_image(self, image_data):
+        """Préprocesser l'image"""
+        try:
+            if isinstance(image_data, str):
+                # Décoder l'image base64
+                image_bytes = base64.b64decode(image_data)
+                image = Image.open(io.BytesIO(image_bytes))
+            else:
+                image = image_data
+            
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            return image
+        except Exception as e:
+            logger.error(f"Erreur lors du préprocessing de l'image: {e}")
+            raise
+    
+    def preprocess_text(self, text):
+        """Préprocesser le texte"""
+        if not isinstance(text, str):
+            return ""
+        
+        # Nettoyer le texte
+        text = text.lower().strip()
+        return text
+    
+    def predict(self, image, text_description):
+        """Effectuer la prédiction"""
+        try:
+            # Préprocesser les entrées
+            image = self.preprocess_image(image)
+            text = self.preprocess_text(text_description)
+            
+            # Traiter l'image
+            image_inputs = self.processor(images=image, return_tensors="pt").pixel_values.to(self.device)
+            
+            # Traiter le texte
+            text_inputs = self.tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=77
+            ).to(self.device)
+            
+            # Prédiction
+            with torch.no_grad():
+                outputs = self.model(
+                    pixel_values=image_inputs,
+                    input_ids=text_inputs['input_ids'],
+                    attention_mask=text_inputs['attention_mask']
+                )
+                
+                # Calculer les scores de similarité
+                image_embeds = outputs.image_embeds
+                text_embeds = outputs.text_embeds
+                
+                # Normaliser les embeddings
+                image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
+                text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
+                
+                # Calculer la similarité
+                similarity = torch.matmul(image_embeds, text_embeds.T)
+                
+                # Convertir en probabilités
+                probabilities = torch.softmax(similarity, dim=-1)
+                
+                # Obtenir la prédiction
+                predicted_idx = torch.argmax(probabilities, dim=-1).item()
+                predicted_category = self.label_encoder.inverse_transform([predicted_idx])[0]
+                confidence = probabilities[0, predicted_idx].item()
+                
+                # Calculer les scores pour toutes les catégories
+                category_scores = {}
+                for i, category in enumerate(self.categories):
+                    if i < probabilities.shape[1]:
+                        category_scores[category] = probabilities[0, i].item()
+                    else:
+                        category_scores[category] = 0.0
+                
+                return {
+                    'success': True,
+                    'predicted_category': predicted_category,
+                    'confidence': confidence,
+                    'category_scores': category_scores,
+                    'source': 'azure_ml'
+                }
+                
+        except Exception as e:
+            logger.error(f"Erreur lors de la prédiction: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'source': 'azure_ml'
+            }
+
+# Instance globale du classificateur
+classifier = None
 
 def init():
-    """Initialisation du modèle et des composants"""
-    global model, processor, tokenizer, label_encoder, device
-    
+    """Initialiser le modèle"""
+    global classifier
     try:
-        # Configuration du device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"Utilisation du device: {device}")
-        
-        # Créer le label encoder
-        label_encoder = LabelEncoder()
-        label_encoder.fit(CATEGORIES)
-        
-        # Charger le modèle
-        model = CLIPForClassification(num_labels=len(CATEGORIES)).to(device)
-        
-        # Charger les poids fine-tunés si disponibles
-        model_path = os.path.join(os.getenv('AZUREML_MODEL_DIR', '.'), 'clip_product_classifier.pth')
-        if os.path.exists(model_path):
-            state_dict = torch.load(model_path, map_location=device)
-            model.load_state_dict(state_dict, strict=False)
-            logger.info(f"Modèle fine-tuné chargé depuis {model_path}")
-        else:
-            logger.warning(f"Fichier de modèle non trouvé: {model_path}. Utilisation du modèle pré-entraîné.")
-        
-        # Charger le processeur et tokenizer
-        processor = CLIPProcessor.from_pretrained(MODEL_NAME)
-        tokenizer = CLIPTokenizer.from_pretrained(MODEL_NAME)
-        
-        model.eval()
+        classifier = CLIPClassifier()
         logger.info("Modèle initialisé avec succès")
-        
     except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation: {str(e)}")
+        logger.error(f"Erreur lors de l'initialisation: {e}")
         raise
 
 def run(raw_data):
-    """Fonction principale de scoring"""
+    """Fonction principale pour Azure ML"""
     try:
+        # Initialiser le modèle si nécessaire
+        if classifier is None:
+            init()
+        
         # Parser les données d'entrée
         data = json.loads(raw_data)
         
-        # Extraire les données
-        image_base64 = data.get('image')
+        # Extraire l'image et le texte
+        image_data = data.get('image')
         text_description = data.get('text', '')
         
-        if not image_base64:
-            return {"error": "Aucune image fournie"}
+        if not image_data:
+            return json.dumps({
+                'success': False,
+                'error': 'Image manquante',
+                'source': 'azure_ml'
+            })
         
-        # Décoder l'image
-        try:
-            image_data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(image_data))
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-        except Exception as e:
-            return {"error": f"Erreur lors du décodage de l'image: {str(e)}"}
+        # Effectuer la prédiction
+        result = classifier.predict(image_data, text_description)
         
-        # Traiter l'image et le texte
-        image_inputs = processor(images=image, return_tensors="pt").pixel_values.to(device)
-        text_inputs = tokenizer(
-            text_description,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=77
-        ).to(device)
-        
-        # Prédiction
-        with torch.no_grad():
-            logits = model(
-                pixel_values=image_inputs,
-                input_ids=text_inputs['input_ids'],
-                attention_mask=text_inputs['attention_mask']
-            )
-            
-            # Obtenir les probabilités
-            probabilities = torch.softmax(logits, dim=-1)
-            predicted_label = torch.argmax(logits, dim=1).item()
-            predicted_category = label_encoder.inverse_transform([predicted_label])[0]
-            
-            # Calculer les scores pour toutes les catégories
-            category_scores = {}
-            for i, category in enumerate(CATEGORIES):
-                category_scores[category] = float(probabilities[0][i])
-        
-        # Retourner les résultats
-        result = {
-            "predicted_category": predicted_category,
-            "confidence": float(probabilities[0][predicted_label]),
-            "category_scores": category_scores,
-            "status": "success"
-        }
-        
-        logger.info(f"Prédiction réussie: {predicted_category} (confiance: {result['confidence']:.3f})")
-        return result
+        # Retourner le résultat
+        return json.dumps(result)
         
     except Exception as e:
-        logger.error(f"Erreur lors du scoring: {str(e)}")
-        return {"error": str(e), "status": "error"}
-
-if __name__ == "__main__":
-    # Test local
-    init()
-    
-    # Test avec une image d'exemple
-    test_data = {
-        "image": "",  # Base64 encoded image
-        "text": "Une montre élégante pour homme"
-    }
-    
-    result = run(json.dumps(test_data))
-    print(json.dumps(result, indent=2))
+        logger.error(f"Erreur dans run(): {e}")
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'source': 'azure_ml'
+        })
