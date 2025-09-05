@@ -117,7 +117,7 @@ azure_ml_api/.env
 finetuned_clip/
 
 # Images (garder seulement les exemples)
-Images/
+# Images/  # Inclus pour Streamlit Cloud
 images_original/
 
 # Données
