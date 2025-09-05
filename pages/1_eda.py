@@ -226,15 +226,22 @@ try:
         if st.session_state.accessibility.get('high_contrast', False):
             st.markdown("""
             <style>
-            .stDownloadButton > button {
+            div[data-testid="stDownloadButton"] button {
                 background-color: white !important;
                 color: black !important;
                 border: 2px solid black !important;
                 font-weight: bold !important;
             }
-            .stDownloadButton > button:hover {
+            div[data-testid="stDownloadButton"] button:hover {
                 background-color: black !important;
                 color: white !important;
+                border: 2px solid black !important;
+            }
+            div[data-testid="stDownloadButton"] button:focus {
+                background-color: white !important;
+                color: black !important;
+                border: 2px solid black !important;
+                outline: 2px solid black !important;
             }
             </style>
             """, unsafe_allow_html=True)
