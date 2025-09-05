@@ -427,6 +427,112 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
         plt.tight_layout()
         st.pyplot(plt, use_container_width=True)
         
+        # Heatmap d'attention simulée sur l'image (comme dans votre version locale)
+        if uploaded_image:
+            st.subheader("Interprétabilité Image (Heatmap d'Attention Simulée)")
+            
+            # Charger l'image
+            image = Image.open(uploaded_image)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Convertir en niveaux de gris pour l'affichage
+            image_gray = image.convert('L')
+            image_array = np.array(image_gray)
+            
+            # Simuler une carte d'attention basée sur la catégorie prédite
+            height, width = image_array.shape
+            
+            # Créer une attention map simulée
+            # Pour les montres, concentrer l'attention sur le centre (cadran)
+            if result['predicted_category'] == 'Watches':
+                # Créer une attention concentrée sur le centre (cadran de montre)
+                y, x = np.ogrid[:height, :width]
+                center_y, center_x = height // 2, width // 2
+                sigma = min(height, width) // 4
+                attention_map = np.exp(-((x - center_x)**2 + (y - center_y)**2) / (2 * sigma**2))
+            elif result['predicted_category'] == 'Computers':
+                # Pour les ordinateurs, attention sur les bords (écran, clavier)
+                y, x = np.ogrid[:height, :width]
+                attention_map = np.zeros((height, width))
+                # Attention sur les bords
+                attention_map[0:height//4, :] = 0.8  # Haut
+                attention_map[3*height//4:, :] = 0.8  # Bas
+                attention_map[:, 0:width//4] = 0.6  # Gauche
+                attention_map[:, 3*width//4:] = 0.6  # Droite
+            else:
+                # Pour les autres catégories, attention uniforme avec quelques zones d'intérêt
+                attention_map = np.random.rand(height, width) * 0.3
+                # Ajouter quelques zones d'attention
+                for _ in range(3):
+                    center_y = np.random.randint(height//4, 3*height//4)
+                    center_x = np.random.randint(width//4, 3*width//4)
+                    sigma = min(height, width) // 8
+                    y, x = np.ogrid[:height, :width]
+                    attention_map += 0.4 * np.exp(-((x - center_x)**2 + (y - center_y)**2) / (2 * sigma**2))
+                attention_map = np.clip(attention_map, 0, 1)
+            
+            # Normaliser l'attention map
+            attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
+            
+            # Créer la visualisation comme dans votre version locale
+            aspect_ratio = width / height
+            base_size = 0.8
+            if aspect_ratio > 1:
+                fig_width = base_size * aspect_ratio
+                fig_height = base_size
+            else:
+                fig_width = base_size
+                fig_height = base_size / aspect_ratio
+                
+            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+            
+            # Afficher l'image en niveaux de gris
+            ax.imshow(image_array, cmap='gray', aspect='equal')
+            
+            # Choisir la palette en fonction du mode d'accessibilité
+            if st.session_state.accessibility.get('color_blind', False):
+                cmap = 'viridis'
+            elif st.session_state.accessibility.get('high_contrast', False):
+                cmap = 'hot'
+            else:
+                cmap = 'plasma'
+                
+            # Superposer la heatmap d'attention
+            im = ax.imshow(attention_map, cmap=cmap, alpha=0.5, aspect='equal')
+            ax.set_title("Heatmap d'Attention Simulée", fontsize=4)
+            ax.axis('off')
+            
+            # Appliquer les styles d'accessibilité
+            text_color = 'white' if st.session_state.accessibility.get('high_contrast', False) else 'black'
+            if st.session_state.accessibility.get('high_contrast', False):
+                ax.set_facecolor('black')
+                fig.set_facecolor('black')
+                ax.title.set_color('white')
+            
+            # Ajouter une barre de couleur
+            cbar = plt.colorbar(im, ax=ax, shrink=0.4, aspect=30)
+            cbar.set_label('Intensité d\'attention', 
+                           fontsize=3,
+                           color=text_color)
+            cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=2)
+            plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=text_color, fontsize=2)
+            
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
+            
+            # Description textuelle pour les non-voyants
+            st.write("**Description de l'analyse d'attention :**")
+            max_attention = np.max(attention_map)
+            min_attention = np.min(attention_map)
+            st.write(f"""
+            - La heatmap superposée montre les zones de l'image où le modèle se concentre pour faire sa prédiction
+            - Intensité d'attention maximale: {max_attention:.3f}
+            - Intensité d'attention minimale: {min_attention:.3f}
+            - Les zones les plus claires indiquent une attention plus forte
+            - **Note:** Cette heatmap est simulée pour le mode démonstration. En mode production avec Azure ML, vous obtiendriez la vraie analyse d'attention CLIP.
+            """)
+        
     else:
         st.error(f"❌ Erreur lors de la prédiction: {result['error']}")
         st.info("💡 Vérifiez la configuration de l'API Azure ML ou utilisez le mode local.")
