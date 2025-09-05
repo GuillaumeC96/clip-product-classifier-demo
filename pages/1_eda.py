@@ -244,6 +244,13 @@ try:
             div[data-testid="stDownloadButton"] button span {
                 color: rgb(38, 39, 48) !important;
             }
+            /* Texte blanc lors du survol */
+            div[data-testid="stDownloadButton"] button:hover * {
+                color: white !important;
+            }
+            div[data-testid="stDownloadButton"] button:hover span {
+                color: white !important;
+            }
             </style>
             """, unsafe_allow_html=True)
         
