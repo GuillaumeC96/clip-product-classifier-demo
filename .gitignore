@@ -121,7 +121,7 @@ Images/
 images_original/
 
 # Données
-produits_original.csv
+# produits_original.csv  # Inclus pour Streamlit Cloud
 keyword_frequencies.csv
 # Garder le fichier de démonstration
 !produits_demo.csv
