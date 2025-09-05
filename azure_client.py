@@ -129,47 +129,46 @@ class AzureMLClient:
                 'Kitchen & Dining', 'Watches'
             ]
             
-            # Règles simples basées sur les mots-clés
+            # Règles améliorées basées sur les mots-clés
             category_keywords = {
-                'Baby Care': ['baby', 'enfant', 'bébé', 'nourrisson', 'couche', 'jouet', 'poussette', 'biberon', 'tétine'],
-                'Beauty and Personal Care': ['beauté', 'cosmétique', 'soin', 'shampooing', 'crème', 'maquillage', 'parfum', 'lotion', 'gel'],
-                'Computers': ['ordinateur', 'laptop', 'pc', 'computer', 'écran', 'clavier', 'souris', 'processeur', 'mémoire'],
-                'Home Decor & Festive Needs': ['déco', 'décoration', 'fête', 'festif', 'ornement', 'bougie', 'cadre', 'tableau'],
-                'Home Furnishing': ['meuble', 'furniture', 'canapé', 'table', 'chaise', 'lit', 'armoire', 'étagère', 'bureau'],
-                'Kitchen & Dining': ['cuisine', 'kitchen', 'vaisselle', 'casserole', 'four', 'réfrigérateur', 'assiette', 'verre', 'couteau'],
-                'Watches': ['montre', 'watch', 'horloge', 'chronomètre', 'bracelet', 'sapphero', 'digital', 'analogique', 'sport']
+                'Baby Care': ['baby', 'enfant', 'bébé', 'nourrisson', 'couche', 'jouet', 'enfant', 'kids', 'child'],
+                'Beauty and Personal Care': ['beauté', 'cosmétique', 'soin', 'shampooing', 'crème', 'maquillage', 'beauty', 'care', 'skin', 'hair', 'makeup'],
+                'Computers': ['ordinateur', 'laptop', 'pc', 'computer', 'écran', 'clavier', 'laptop', 'desktop', 'monitor', 'keyboard', 'mouse'],
+                'Home Decor & Festive Needs': ['déco', 'décoration', 'fête', 'festif', 'ornement', 'decor', 'decoration', 'ornament', 'festive'],
+                'Home Furnishing': ['meuble', 'furniture', 'canapé', 'table', 'chaise', 'lit', 'sofa', 'chair', 'bed', 'table', 'furniture'],
+                'Kitchen & Dining': ['cuisine', 'kitchen', 'vaisselle', 'casserole', 'four', 'réfrigérateur', 'cookware', 'dining', 'plate', 'bowl'],
+                'Watches': ['montre', 'watch', 'horloge', 'chronomètre', 'bracelet', 'sapphero', 'watches', 'timepiece', 'clock', 'stainless', 'steel', 'quartz', 'water', 'resistant']
             }
             
-            # Calculer les scores avec une logique améliorée
+            # Calculer les scores avec pondération
             scores = {}
             for category, keywords in category_keywords.items():
+                # Score basé sur le nombre de mots-clés trouvés
                 matches = sum(1 for keyword in keywords if keyword in combined_text)
-                if matches > 0:
-                    # Score basé sur le nombre de correspondances et la longueur du texte
-                    base_score = matches / len(keywords)
-                    # Bonus pour les correspondances multiples
-                    bonus = min(0.3, matches * 0.1)
-                    scores[category] = min(1.0, base_score + bonus)
-                else:
-                    scores[category] = 0.0
+                # Score normalisé par le nombre de mots-clés
+                base_score = matches / len(keywords)
+                
+                # Bonus pour les mots-clés très spécifiques
+                specific_bonus = 0
+                if category == 'Watches' and any(word in combined_text for word in ['sapphero', 'stainless', 'steel', 'quartz', 'water', 'resistant']):
+                    specific_bonus = 0.2
+                elif category == 'Computers' and any(word in combined_text for word in ['laptop', 'desktop', 'monitor']):
+                    specific_bonus = 0.15
+                elif category == 'Beauty and Personal Care' and any(word in combined_text for word in ['beauty', 'care', 'skin', 'hair']):
+                    specific_bonus = 0.15
+                
+                scores[category] = min(1.0, base_score + specific_bonus)
             
             # Prédiction
             if max(scores.values()) > 0:
                 predicted_category = max(scores, key=scores.get)
                 confidence = max(scores.values())
+                # Améliorer la confiance si plusieurs mots-clés correspondent
+                if confidence > 0.3:
+                    confidence = min(0.95, confidence + 0.1)
             else:
-                # Si aucun mot-clé ne correspond, donner des scores aléatoires mais réalistes
-                import random
                 predicted_category = 'Home Furnishing'  # Catégorie par défaut
-                confidence = 0.15
-                
-                # Ajouter des scores aléatoires pour simuler une prédiction
-                for category in categories:
-                    if category not in scores or scores[category] == 0:
-                        scores[category] = random.uniform(0.01, 0.08)
-                
-                # S'assurer que la catégorie prédite a le score le plus élevé
-                scores[predicted_category] = confidence
+                confidence = 0.1
             
             return {
                 'success': True,
