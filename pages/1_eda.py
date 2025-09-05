@@ -8,7 +8,10 @@ except ImportError:
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 
 # Configuration
 KEYWORD_FREQ_PATH = 'keyword_frequencies.csv'

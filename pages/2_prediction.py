@@ -1,7 +1,10 @@
 
 import os
 import pandas as pd
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 import streamlit as st
 import spacy
 from transformers import CLIPModel, CLIPTokenizer, CLIPProcessor

@@ -20,7 +20,7 @@ class AzureMLClient:
         self.use_local = os.getenv('USE_LOCAL_MODEL', 'false').lower() == 'true'
         
         if not self.use_local and not self.endpoint_url:
-            st.warning("⚠️ AZURE_ML_ENDPOINT_URL non configuré. Utilisation du mode local.")
+            st.warning("⚠️ AZURE_ML_ENDPOINT_URL non configuré. Utilisation du mode démonstration.")
             self.use_local = True
     
     def encode_image_to_base64(self, image: Image.Image) -> str:
@@ -117,37 +117,55 @@ class AzureMLClient:
             }
     
     def _predict_local(self, image: Image.Image, text_description: str) -> Dict[str, Any]:
-        """Prédiction locale (fallback)"""
+        """Prédiction de démonstration (fallback)"""
         try:
-            # Utiliser le classificateur local si disponible
-            if 'classifier' in st.session_state and st.session_state.classifier is not None:
-                # Simuler une prédiction simple (vous pouvez adapter selon vos besoins)
-                return {
-                    'success': True,
-                    'predicted_category': 'Computers',  # Valeur par défaut
-                    'confidence': 0.75,
-                    'category_scores': {
-                        'Baby Care': 0.1,
-                        'Beauty and Personal Care': 0.1,
-                        'Computers': 0.75,
-                        'Home Decor & Festive Needs': 0.02,
-                        'Home Furnishing': 0.01,
-                        'Kitchen & Dining': 0.01,
-                        'Watches': 0.01
-                    },
-                    'source': 'local_fallback'
-                }
+            # Simulation d'une prédiction basée sur des règles simples
+            combined_text = text_description.lower()
+            
+            # Catégories disponibles
+            categories = [
+                'Baby Care', 'Beauty and Personal Care', 'Computers',
+                'Home Decor & Festive Needs', 'Home Furnishing',
+                'Kitchen & Dining', 'Watches'
+            ]
+            
+            # Règles simples basées sur les mots-clés
+            category_keywords = {
+                'Baby Care': ['baby', 'enfant', 'bébé', 'nourrisson', 'couche', 'jouet'],
+                'Beauty and Personal Care': ['beauté', 'cosmétique', 'soin', 'shampooing', 'crème', 'maquillage'],
+                'Computers': ['ordinateur', 'laptop', 'pc', 'computer', 'écran', 'clavier'],
+                'Home Decor & Festive Needs': ['déco', 'décoration', 'fête', 'festif', 'ornement'],
+                'Home Furnishing': ['meuble', 'furniture', 'canapé', 'table', 'chaise', 'lit'],
+                'Kitchen & Dining': ['cuisine', 'kitchen', 'vaisselle', 'casserole', 'four', 'réfrigérateur'],
+                'Watches': ['montre', 'watch', 'horloge', 'chronomètre', 'bracelet', 'sapphero']
+            }
+            
+            # Calculer les scores
+            scores = {}
+            for category, keywords in category_keywords.items():
+                score = sum(1 for keyword in keywords if keyword in combined_text)
+                scores[category] = score / len(keywords)
+            
+            # Prédiction
+            if max(scores.values()) > 0:
+                predicted_category = max(scores, key=scores.get)
+                confidence = max(scores.values())
             else:
-                return {
-                    'success': False,
-                    'error': 'Modèle local non disponible',
-                    'source': 'local_fallback'
-                }
+                predicted_category = 'Home Furnishing'  # Catégorie par défaut
+                confidence = 0.1
+            
+            return {
+                'success': True,
+                'predicted_category': predicted_category,
+                'confidence': confidence,
+                'category_scores': scores,
+                'source': 'demo'
+            }
         except Exception as e:
             return {
                 'success': False,
-                'error': f'Erreur lors de la prédiction locale: {str(e)}',
-                'source': 'local_fallback'
+                'error': f'Erreur lors de la prédiction de démonstration: {str(e)}',
+                'source': 'demo'
             }
     
     def get_service_status(self) -> Dict[str, Any]:
