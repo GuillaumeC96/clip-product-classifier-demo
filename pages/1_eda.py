@@ -222,43 +222,20 @@ try:
         
         csv = keyword_freq_df.to_csv(index=False).encode('utf-8')
         
-        # Styles CSS pour le bouton de téléchargement en mode contraste élevé
+        # Empêcher le bouton de téléchargement de changer en mode contraste élevé
         if st.session_state.accessibility.get('high_contrast', False):
             st.markdown("""
             <style>
-            /* Styles très spécifiques pour le bouton de téléchargement */
-            .stDownloadButton button[kind="secondary"] {
-                background-color: white !important;
-                color: black !important;
-                border: 2px solid black !important;
-                font-weight: bold !important;
+            /* Garder les styles par défaut du bouton de téléchargement */
+            div[data-testid="stDownloadButton"] button {
+                background-color: rgb(255, 255, 255) !important;
+                color: rgb(38, 39, 48) !important;
+                border: 1px solid rgba(49, 51, 63, 0.2) !important;
             }
-            .stDownloadButton button[kind="secondary"]:hover {
-                background-color: black !important;
-                color: white !important;
-                border: 2px solid black !important;
-            }
-            .stDownloadButton button[kind="secondary"]:focus {
-                background-color: white !important;
-                color: black !important;
-                border: 2px solid black !important;
-                outline: 2px solid black !important;
-            }
-            /* Styles alternatifs avec sélecteurs plus généraux */
-            div[data-testid="stDownloadButton"] button,
-            .stDownloadButton > button,
-            button[data-testid="baseButton-secondary"] {
-                background-color: white !important;
-                color: black !important;
-                border: 2px solid black !important;
-                font-weight: bold !important;
-            }
-            div[data-testid="stDownloadButton"] button:hover,
-            .stDownloadButton > button:hover,
-            button[data-testid="baseButton-secondary"]:hover {
-                background-color: black !important;
-                color: white !important;
-                border: 2px solid black !important;
+            div[data-testid="stDownloadButton"] button:hover {
+                background-color: rgba(49, 51, 63, 0.1) !important;
+                color: rgb(38, 39, 48) !important;
+                border: 1px solid rgba(49, 51, 63, 0.2) !important;
             }
             </style>
             """, unsafe_allow_html=True)
