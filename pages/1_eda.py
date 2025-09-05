@@ -32,7 +32,7 @@ if 'df' not in st.session_state:
         """Charge et traite les données des produits"""
         try:
             # Charger les données
-            df = pd.read_csv('produits_demo.csv')
+            df = pd.read_csv('produits_original.csv')
             
             # Traiter les catégories (structure différente dans produits_demo.csv)
             import ast
