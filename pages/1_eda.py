@@ -34,14 +34,16 @@ if 'df' not in st.session_state:
             # Charger les données
             df = pd.read_csv('produits_demo.csv')
             
-            # Traiter les catégories
-            df['categories'] = df['categories'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+            # Traiter les catégories (structure différente dans produits_demo.csv)
+            import ast
+            df['categories'] = df['product_category_tree'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
             df['main_category'] = df['categories'].apply(lambda x: x[0] if x else 'Unknown')
+            df['sub_categories'] = df['categories'].apply(lambda x: x[1] if len(x) > 1 else 'Unknown')
             
-            # Ajouter des informations sur les images
-            df['image_exists'] = df['image_path'].apply(lambda x: os.path.exists(x) if pd.notna(x) else False)
-            df['image_pixels'] = df['image_path'].apply(lambda x: get_image_pixels(x) if pd.notna(x) and os.path.exists(x) else 0)
-            df['aspect_ratio'] = df['image_path'].apply(lambda x: get_aspect_ratio(x) if pd.notna(x) and os.path.exists(x) else 0)
+            # Ajouter des informations sur les images (colonne 'image' dans produits_demo.csv)
+            df['image_exists'] = df['image'].apply(lambda x: os.path.exists(f"Images/{x}") if pd.notna(x) else False)
+            df['image_pixels'] = df['image'].apply(lambda x: get_image_pixels(f"Images/{x}") if pd.notna(x) and os.path.exists(f"Images/{x}") else 0)
+            df['aspect_ratio'] = df['image'].apply(lambda x: get_aspect_ratio(f"Images/{x}") if pd.notna(x) and os.path.exists(f"Images/{x}") else 0)
             
             return df
         except Exception as e:
@@ -80,7 +82,7 @@ if 'df' not in st.session_state or st.session_state.df.empty:
 df = st.session_state.df
 
 # Validate DataFrame
-required_columns = ['main_category', 'sub_categories', 'image_path', 'image_exists', 'num_pixels', 'aspect_ratio']
+required_columns = ['main_category', 'sub_categories', 'image', 'image_exists', 'image_pixels', 'aspect_ratio']
 missing_columns = [col for col in required_columns if col not in df.columns]
 if missing_columns:
     st.error(f"❌ Colonnes manquantes dans le DataFrame : {missing_columns}")
@@ -326,12 +328,12 @@ st.write("**Exemple d'image par catégorie :**")
 # Debugging: Display category and image availability
 st.write("**Disponibilité des images par catégorie :**")
 for category in df['main_category'].unique()[:3]:
-    count = len(df[(df['main_category'] == category) & df['image_exists'] & (df['num_pixels'] > 0)])
-    st.write(f"- {category}: {count} images valides (num_pixels > 0)")
+    count = len(df[(df['main_category'] == category) & df['image_exists'] & (df['image_pixels'] > 0)])
+    st.write(f"- {category}: {count} images valides (image_pixels > 0)")
 
 for category in df['main_category'].unique()[:3]:
     st.write(f"**Catégorie : {category}**")
-    filtered_df = df[(df['main_category'] == category) & df['image_exists'] & (df['num_pixels'] > 0)]['image_path']
+    filtered_df = df[(df['main_category'] == category) & df['image_exists'] & (df['image_pixels'] > 0)]['image']
     if not filtered_df.empty:
         sample_paths = filtered_df.sample(n=1, random_state=42)
         for path in sample_paths:
@@ -346,24 +348,24 @@ for category in df['main_category'].unique()[:3]:
             else:
                 st.write(f"⚠️ Chemin d'image non valide pour {category}: {path}")
     else:
-        st.write(f"Aucune image valide disponible pour la catégorie {category} (aucune image avec num_pixels > 0).")
+        st.write(f"Aucune image valide disponible pour la catégorie {category} (aucune image avec image_pixels > 0).")
 
 # Statistiques sur les images
 st.write("**Statistiques sur les images :**")
-valid_image_df = df[df['num_pixels'] > 0][['num_pixels', 'aspect_ratio']]
+valid_image_df = df[df['image_pixels'] > 0][['image_pixels', 'aspect_ratio']]
 if valid_image_df.empty:
-    st.warning("⚠️ Aucune image valide (num_pixels > 0) disponible pour les statistiques.")
+    st.warning("⚠️ Aucune image valide (image_pixels > 0) disponible pour les statistiques.")
 else:
     st.write(f"**Nombre d'images valides :** {len(valid_image_df)}")
     st.dataframe(valid_image_df.describe())
 
 # Scatter plot accessible
-if not valid_image_df.empty and 'aspect_ratio' in valid_image_df.columns and 'num_pixels' in valid_image_df.columns:
-    fig5 = px.scatter(valid_image_df, x='aspect_ratio', y='num_pixels', 
+if not valid_image_df.empty and 'aspect_ratio' in valid_image_df.columns and 'image_pixels' in valid_image_df.columns:
+    fig5 = px.scatter(valid_image_df, x='aspect_ratio', y='image_pixels', 
                       color=df.loc[valid_image_df.index, 'main_category'],
                       title="Ratio Hauteur/Largeur vs Nombre de Pixels (Images Valides)",
                       color_discrete_sequence=PLOTLY_COLORS,
-                      labels={'aspect_ratio': 'Ratio Hauteur/Largeur', 'num_pixels': 'Nombre de Pixels'})
+                      labels={'aspect_ratio': 'Ratio Hauteur/Largeur', 'image_pixels': 'Nombre de Pixels'})
     fig5.update_layout(
         plot_bgcolor=bg_color,
         paper_bgcolor=bg_color,
@@ -390,15 +392,15 @@ if not valid_image_df.empty and 'aspect_ratio' in valid_image_df.columns and 'nu
     )
     st.plotly_chart(fig5, use_container_width=True, aria_label="Nuage de points du ratio hauteur/largeur vs nombre de pixels")
 else:
-    st.warning("⚠️ Données insuffisantes pour afficher le nuage de points (aucune image valide avec aspect_ratio ou num_pixels).")
+    st.warning("⚠️ Données insuffisantes pour afficher le nuage de points (aucune image valide avec aspect_ratio ou image_pixels).")
 
 # Debugging: Display invalid images
-st.write("**Images invalides (num_pixels = 0 ou manquant) :**")
-invalid_images = df[df['num_pixels'] <= 0][['image_path', 'main_category', 'num_pixels']]
+st.write("**Images invalides (image_pixels = 0 ou manquant) :**")
+invalid_images = df[df['image_pixels'] <= 0][['image', 'main_category', 'image_pixels']]
 if not invalid_images.empty:
     st.dataframe(invalid_images)
 else:
-    st.write("✅ Toutes les images ont des valeurs valides pour num_pixels.")
+    st.write("✅ Toutes les images ont des valeurs valides pour image_pixels.")
 
 # Afficher les options d'accessibilité dans la sidebar
 render_accessibility_sidebar()
