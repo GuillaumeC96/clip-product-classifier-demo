@@ -226,32 +226,53 @@ try:
         if st.session_state.accessibility.get('high_contrast', False):
             st.markdown("""
             <style>
-            div[data-testid="stDownloadButton"] button {
+            /* Styles très spécifiques pour le bouton de téléchargement */
+            .stDownloadButton button[kind="secondary"] {
                 background-color: white !important;
                 color: black !important;
                 border: 2px solid black !important;
                 font-weight: bold !important;
             }
-            div[data-testid="stDownloadButton"] button:hover {
+            .stDownloadButton button[kind="secondary"]:hover {
                 background-color: black !important;
                 color: white !important;
                 border: 2px solid black !important;
             }
-            div[data-testid="stDownloadButton"] button:focus {
+            .stDownloadButton button[kind="secondary"]:focus {
                 background-color: white !important;
                 color: black !important;
                 border: 2px solid black !important;
                 outline: 2px solid black !important;
             }
+            /* Styles alternatifs avec sélecteurs plus généraux */
+            div[data-testid="stDownloadButton"] button,
+            .stDownloadButton > button,
+            button[data-testid="baseButton-secondary"] {
+                background-color: white !important;
+                color: black !important;
+                border: 2px solid black !important;
+                font-weight: bold !important;
+            }
+            div[data-testid="stDownloadButton"] button:hover,
+            .stDownloadButton > button:hover,
+            button[data-testid="baseButton-secondary"]:hover {
+                background-color: black !important;
+                color: white !important;
+                border: 2px solid black !important;
+            }
             </style>
             """, unsafe_allow_html=True)
         
-        st.download_button(
-            label="Télécharger les fréquences des mots clés (CSV)",
-            data=csv,
-            file_name="keyword_frequencies.csv",
-            mime="text/csv",
-        )
+        # Créer un conteneur avec un ID unique pour le bouton
+        download_container = st.container()
+        with download_container:
+            st.download_button(
+                label="Télécharger les fréquences des mots clés (CSV)",
+                data=csv,
+                file_name="keyword_frequencies.csv",
+                mime="text/csv",
+                key="download_keywords_csv"
+            )
         
         # Graphique barre accessible
         fig3 = px.bar(keyword_freq_df.head(50), x='Mot Clé', y='Fréquence', 
