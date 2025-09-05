@@ -5,11 +5,17 @@ Page de prédiction pour la version cloud avec Azure ML
 import os
 import pandas as pd
 import streamlit as st
-import spacy
+try:
+    import spacy
+except ImportError:
+    spacy = None
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+except ImportError:
+    sns = None
 from collections import Counter
 import re
 from scipy.interpolate import griddata
@@ -39,28 +45,9 @@ render_accessibility_sidebar()
 # Appliquer les styles d'accessibilité
 apply_accessibility_styles()
 
-# Load spaCy model with fallback options
+# spaCy will be handled by Azure ML API, not locally
 nlp = None
-try:
-    # Try to load the transformer model first
-    nlp = spacy.load("en_core_web_trf")
-    st.info("✅ spaCy transformer model loaded")
-except Exception:
-    try:
-        # Fallback to the smaller model
-        nlp = spacy.load("en_core_web_sm")
-        st.info("✅ spaCy small model loaded")
-    except Exception:
-        try:
-            # Try to download and load the small model
-            st.info("⏳ Downloading spaCy small model...")
-            os.system("python -m spacy download en_core_web_sm")
-            nlp = spacy.load("en_core_web_sm")
-            st.info("✅ spaCy small model downloaded and loaded")
-        except Exception as e:
-            st.warning(f"⚠️ Could not load spaCy model: {str(e)}")
-            st.info("🔄 Using fallback text processing...")
-            nlp = None
+st.info("🔄 spaCy processing will be handled by Azure ML API")
 
 def clean_text(text):
     """Clean text using the same replacement patterns as in training."""

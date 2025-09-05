@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from wordcloud import WordCloud
+try:
+    from wordcloud import WordCloud
+except ImportError:
+    WordCloud = None
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
