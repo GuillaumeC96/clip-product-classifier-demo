@@ -39,16 +39,28 @@ render_accessibility_sidebar()
 # Appliquer les styles d'accessibilité
 apply_accessibility_styles()
 
-# Load spaCy model on CPU to avoid device mismatch issues
+# Load spaCy model with fallback options
+nlp = None
 try:
+    # Try to load the transformer model first
     nlp = spacy.load("en_core_web_trf")
-    st.info("⚠️ spaCy running on CPU to ensure stability")
-except Exception as e:
-    st.error(f"❌ Failed to load spaCy model: {str(e)}")
-    st.info("⏳ Downloading spaCy model...")
-    os.system("python -m spacy download en_core_web_trf")
-    nlp = spacy.load("en_core_web_trf")
-    st.info("⚠️ spaCy running on CPU to ensure stability")
+    st.info("✅ spaCy transformer model loaded")
+except Exception:
+    try:
+        # Fallback to the smaller model
+        nlp = spacy.load("en_core_web_sm")
+        st.info("✅ spaCy small model loaded")
+    except Exception:
+        try:
+            # Try to download and load the small model
+            st.info("⏳ Downloading spaCy small model...")
+            os.system("python -m spacy download en_core_web_sm")
+            nlp = spacy.load("en_core_web_sm")
+            st.info("✅ spaCy small model downloaded and loaded")
+        except Exception as e:
+            st.warning(f"⚠️ Could not load spaCy model: {str(e)}")
+            st.info("🔄 Using fallback text processing...")
+            nlp = None
 
 def clean_text(text):
     """Clean text using the same replacement patterns as in training."""
@@ -222,23 +234,50 @@ def clean_text(text):
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
+def extract_keywords_fallback(text, top_n=15):
+    """Fallback keyword extraction without spaCy."""
+    import re
+    from collections import Counter
+    
+    # Simple stopwords list
+    stopwords = {
+        'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
+        'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
+        'to', 'was', 'will', 'with', 'this', 'these', 'they', 'them',
+        'their', 'there', 'then', 'than', 'or', 'but', 'if', 'when',
+        'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few',
+        'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
+        'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can',
+        'could', 'should', 'would', 'may', 'might', 'must', 'shall'
+    }
+    
+    # Clean and tokenize text
+    text = re.sub(r'[^\w\s]', ' ', text.lower())
+    words = text.split()
+    
+    # Filter out stopwords and short words
+    keywords = [word for word in words if len(word) > 2 and word not in stopwords]
+    
+    # Count and return top keywords
+    word_counts = Counter(keywords)
+    return [word for word, count in word_counts.most_common(top_n)]
+
 def extract_keywords(text, nlp, top_n=15):
     """Extract keywords from text using lemmatization and stopword removal."""
     if pd.isna(text) or text == '':
         return []
     # Clean text before processing
     text = clean_text(text)
+    
+    # If spaCy is not available, use simple text processing
+    if nlp is None:
+        return extract_keywords_fallback(text, top_n)
+    
     try:
         doc = nlp(text)
     except Exception as e:
-        st.error(f"❌ Error processing text with spaCy: {str(e)}")
-        st.warning("⚠️ Retrying with CPU-based spaCy model...")
-        try:
-            nlp_cpu = spacy.load("en_core_web_trf")
-            doc = nlp_cpu(text)
-        except Exception as e2:
-            st.error(f"❌ Failed to process text even on CPU: {str(e2)}")
-            return []
+        st.warning(f"⚠️ Error processing text with spaCy: {str(e)}")
+        return extract_keywords_fallback(text, top_n)
     keywords = []
     for token in doc:
         lemma = token.lemma_.lower().strip()
