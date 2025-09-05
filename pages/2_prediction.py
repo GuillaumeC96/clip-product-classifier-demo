@@ -387,6 +387,46 @@ if st.button("Prédire", key="predict_button", help="Lancer la prédiction de ca
         plt.tight_layout()
         st.pyplot(plt, use_container_width=True)
         
+        # Heatmap des scores (simulation)
+        st.subheader("Heatmap des Scores de Classification")
+        
+        # Créer une matrice pour la heatmap
+        categories = list(result['category_scores'].keys())
+        scores = list(result['category_scores'].values())
+        
+        # Créer une matrice 1D pour la heatmap
+        score_matrix = np.array(scores).reshape(1, -1)
+        
+        plt.figure(figsize=(12, 4))
+        
+        # Générer la heatmap
+        if sns is not None:
+            # Utiliser seaborn si disponible
+            sns.heatmap(score_matrix, 
+                       xticklabels=categories,
+                       yticklabels=['Scores'],
+                       annot=True, 
+                       fmt='.3f',
+                       cmap='RdYlBu_r' if not st.session_state.accessibility.get('color_blind', False) else 'viridis',
+                       cbar_kws={'label': 'Score de probabilité'})
+        else:
+            # Fallback avec matplotlib
+            im = plt.imshow(score_matrix, cmap='RdYlBu_r' if not st.session_state.accessibility.get('color_blind', False) else 'viridis', aspect='auto')
+            plt.xticks(range(len(categories)), categories, rotation=45, ha='right')
+            plt.yticks([0], ['Scores'])
+            plt.colorbar(im, label='Score de probabilité')
+            
+            # Ajouter les annotations
+            for i in range(len(categories)):
+                plt.text(i, 0, f'{scores[i]:.3f}', ha='center', va='center', 
+                        color='white' if scores[i] > 0.5 else 'black', fontweight='bold')
+        
+        plt.title(f"Heatmap des Scores - {product_name[:50]}...", 
+                  fontsize=16 if not st.session_state.accessibility.get('large_text', False) else 20, 
+                  pad=20)
+        plt.tight_layout()
+        st.pyplot(plt, use_container_width=True)
+        
     else:
         st.error(f"❌ Erreur lors de la prédiction: {result['error']}")
         st.info("💡 Vérifiez la configuration de l'API Azure ML ou utilisez le mode local.")
