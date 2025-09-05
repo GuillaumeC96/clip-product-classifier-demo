@@ -237,6 +237,13 @@ try:
                 color: rgb(38, 39, 48) !important;
                 border: 1px solid rgba(49, 51, 63, 0.2) !important;
             }
+            /* Forcer la couleur du texte à rester sombre */
+            div[data-testid="stDownloadButton"] button * {
+                color: rgb(38, 39, 48) !important;
+            }
+            div[data-testid="stDownloadButton"] button span {
+                color: rgb(38, 39, 48) !important;
+            }
             </style>
             """, unsafe_allow_html=True)
         
