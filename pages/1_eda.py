@@ -41,7 +41,7 @@ if 'df' not in st.session_state:
             df['main_category'] = df['categories'].apply(lambda x: x[0].split(' >> ')[0] if x and len(x) > 0 else 'Unknown')
             df['sub_categories'] = df['categories'].apply(lambda x: x[0].split(' >> ')[1] if x and len(x) > 0 and ' >> ' in x[0] else 'Unknown')
             
-            # Ajouter des informations sur les images (colonne 'image' dans produits_demo.csv)
+            # Ajouter des informations sur les images (colonne 'image' dans produits_original.csv)
             df['image_exists'] = df['image'].apply(lambda x: os.path.exists(f"Images/{x}") if pd.notna(x) else False)
             df['image_pixels'] = df['image'].apply(lambda x: get_image_pixels(f"Images/{x}") if pd.notna(x) and os.path.exists(f"Images/{x}") else 0)
             df['aspect_ratio'] = df['image'].apply(lambda x: get_aspect_ratio(f"Images/{x}") if pd.notna(x) and os.path.exists(f"Images/{x}") else 0)
@@ -338,16 +338,17 @@ for category in df['main_category'].unique()[:3]:
     if not filtered_df.empty:
         sample_paths = filtered_df.sample(n=1, random_state=42)
         for path in sample_paths:
-            if os.path.exists(path):
+            full_path = f"Images/{path}"
+            if os.path.exists(full_path):
                 try:
-                    img = Image.open(path)
+                    img = Image.open(full_path)
                     st.image(img, caption=f"Exemple pour {category}", width=200)
                     # Texte alternatif pour les images
                     st.caption(f"Image d'exemple pour la catégorie {category}")
                 except Exception as e:
                     st.write(f"⚠️ Impossible de charger l'image pour {category}: {str(e)}")
             else:
-                st.write(f"⚠️ Chemin d'image non valide pour {category}: {path}")
+                st.write(f"⚠️ Chemin d'image non valide pour {category}: {full_path}")
     else:
         st.write(f"Aucune image valide disponible pour la catégorie {category} (aucune image avec image_pixels > 0).")
 
