@@ -37,8 +37,9 @@ if 'df' not in st.session_state:
             # Traiter les catégories (structure différente dans produits_demo.csv)
             import ast
             df['categories'] = df['product_category_tree'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
-            df['main_category'] = df['categories'].apply(lambda x: x[0] if x else 'Unknown')
-            df['sub_categories'] = df['categories'].apply(lambda x: x[1] if len(x) > 1 else 'Unknown')
+            # Extraire seulement la catégorie principale (avant le premier >>)
+            df['main_category'] = df['categories'].apply(lambda x: x[0].split(' >> ')[0] if x and len(x) > 0 else 'Unknown')
+            df['sub_categories'] = df['categories'].apply(lambda x: x[0].split(' >> ')[1] if x and len(x) > 0 and ' >> ' in x[0] else 'Unknown')
             
             # Ajouter des informations sur les images (colonne 'image' dans produits_demo.csv)
             df['image_exists'] = df['image'].apply(lambda x: os.path.exists(f"Images/{x}") if pd.notna(x) else False)
