@@ -32,7 +32,7 @@ if 'df' not in st.session_state:
         """Charge et traite les données des produits"""
         try:
             # Charger les données
-            df = pd.read_csv('produits_original.csv')
+            df = pd.read_csv('produits_demo.csv')
             
             # Traiter les catégories
             df['categories'] = df['categories'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
