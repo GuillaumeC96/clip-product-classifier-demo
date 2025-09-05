@@ -129,6 +129,7 @@ def main():
     
     # Titre principal
     st.title("🛍️ Application CLIP - Classification de Produits")
+    st.caption("Version cloud avec Azure ML backend")
     st.markdown("---")
     
     # Navigation
